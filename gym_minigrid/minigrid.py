@@ -236,6 +236,18 @@ class Door(WorldObj):
         self.is_open = not self.is_open
         return True
 
+    def ma_toggle(self, env, agent_id, pos):
+        # If the player has the right key to open the door in a multi-agent setting
+        if self.is_locked:
+            if isinstance(env.carrying_objects[agent_id], Key) and env.carrying_objects[agent_id].color == self.color:
+                self.is_locked = False
+                self.is_open = True
+                return True
+            return False
+
+        self.is_open = not self.is_open
+        return True
+
     def encode(self):
         """Encode the a description of this object as a 3-tuple of integers"""
 
@@ -615,14 +627,33 @@ class Grid:
             for i in range(0, self.width):
                 cell = self.get(i, j)
 
+                # agent_here = False
+                # if agent_poses is not None and np.array((i, j)) in agent_poses:
+                #     agent_here = True
+
                 agent_here = False
-                if agent_poses is not None and np.array((i, j)) in agent_poses:
-                    agent_here = True
+                agent_index = None
+                if agent_poses is not None:
+                    for agent_index, p in enumerate(agent_poses):
+                        if np.all(np.equal(p, np.array((i, j)))):
+                            agent_here = True
+                            break 
+
+                # agent_here = np.any(np.equal(np.array((i, j)), x) for x in agent_poses)
+
+                # tile_img = Grid.ma_render_tile(
+                #     cell,
+                #     agent_id=agent_poses.index(np.array((i, j))) if agent_here else None,
+                #     agent_dir=agent_dirs[agent_poses.index(np.array((i, j)))] if agent_here else None,
+                #     num_agents=len(agent_poses) if agent_here else None,
+                #     highlight=highlight_mask[i, j],
+                #     tile_size=tile_size
+                # )
 
                 tile_img = Grid.ma_render_tile(
                     cell,
-                    agent_id=agent_poses.index(np.array((i, j))) if agent_here else None,
-                    agent_dir=agent_dirs[agent_poses.index(np.array((i, j)))] if agent_here else None,
+                    agent_id=agent_index if agent_here else None,
+                    agent_dir=agent_dirs[agent_index] if agent_here else None,
                     num_agents=len(agent_poses) if agent_here else None,
                     highlight=highlight_mask[i, j],
                     tile_size=tile_size
@@ -1733,10 +1764,26 @@ class MultiAgentMiniGridEnv(gym.Env):
                 continue
 
             # Don't place the object where agents are
-            if pos in self.agent_poses:
-                continue
-            # if np.array_equal(pos, self.agent_pos):
+
+            # if np.any(np.equal(pos, p) for p in self.agent_poses):
             #     continue
+
+            print('==========')
+            # print('agent_poses list: ', self.agent_poses)
+            # print('pos: ', pos, ' type: ', type(pos))
+            # for p in self.agent_poses:
+            #     print('type: ', type(p))
+            # if pos in self.agent_poses:
+            #     continue
+
+            conflict = False
+            for p in self.agent_poses:
+                print('pos: ', pos, ' type: ', type(pos), ' p: ', p, ' type: ', type(p), ' equal: ', np.equal(p, pos))
+                if np.all(np.equal(p, pos)):
+                    conflict = True
+                    break
+            if conflict:
+                continue
 
             # Check if there is a filtering criterion
             if reject_fn and reject_fn(self, pos):
@@ -2009,7 +2056,7 @@ class MultiAgentMiniGridEnv(gym.Env):
             # Toggle/activate an object
             elif action == self.actions.toggle:
                 if fwd_cells[agent_id]:
-                    fwd_cells[agent_id].toggle(self, fwd_poses[agent_id])
+                    fwd_cells[agent_id].ma_toggle(self, agent_id, fwd_poses[agent_id])
 
                 # if fwd_cell:
                 #     fwd_cell.toggle(self, fwd_pos)
@@ -2071,7 +2118,7 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         combined_obs = []
 
-        for agent_id in range(self.agent_poses):
+        for agent_id in range(len(self.agent_poses)):
             grid, vis_mask = self.gen_obs_grid(agent_id)
 
             # Encode the partially observable view into a numpy array
