@@ -53,39 +53,29 @@ def key_handler(event):
     global current_agent
     global agent_actions
 
+
     if event.key == 'left':
         agent_actions.append(env.actions.left)
-        # step(env.actions.left)
-        # return
+
     if event.key == 'right':
         agent_actions.append(env.actions.right)
-        # step(env.actions.right)
-        # return
+
     if event.key == 'up':
         agent_actions.append(env.actions.forward)
-        # step(env.actions.forward)
-        # return
 
     # Spacebar
     if event.key == ' ':
         agent_actions.append(env.actions.toggle)
-        # step(env.actions.toggle)
-        # return
+
     if event.key == 'pageup':
         agent_actions.append(env.actions.pickup)
-        # step(env.actions.pickup)
-        # return
+
     if event.key == 'pagedown':
         agent_actions.append(env.actions.drop)
-        # step(env.actions.drop)
-        # return
+
 
     if event.key == 'enter':
         agent_actions.append(env.actions.done)
-        # step(env.actions.done)
-        # return
-
-    # print(current_agent)
 
     if current_agent:
         step(agent_actions)
@@ -124,7 +114,6 @@ args = parser.parse_args()
 env = gym.make(args.env)
 
 if args.agent_view:
-    # print('in partial obs view')
     env = RGBImgPartialObsWrapper(env)
     env = ImgObsWrapper(env)
 

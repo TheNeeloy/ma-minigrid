@@ -578,9 +578,6 @@ class Grid:
         if obj != None:
             obj.render(img)
 
-        # print('==========')
-        # print('num agents: ', num_agents)
-
         # Overlay an agent on top
         if agent_dir is not None and num_agents is not None and agent_id is not None:
             tri_fn = point_in_triangle(
@@ -591,11 +588,7 @@ class Grid:
 
             # Rotate the agent based on its direction
             tri_fn = rotate_fn(tri_fn, cx=0.5, cy=0.5, theta=0.5*math.pi*agent_dir)
-            cmap = plt.cm.get_cmap('jet', num_agents)
-            # print('cmap: ', cmap)
-            color = cmap(agent_id)
-            # print('agent id: ', agent_id, ' color: ', color)
-            fill_coords(img, tri_fn, (color[0]*255, color[1]*255, color[2]*255))
+            fill_coords(img, tri_fn, tuple(COLORS[IDX_TO_COLOR[agent_id % len(COLOR_NAMES)]]))
 
         # Highlight the cell if needed
         if highlight:
@@ -636,10 +629,6 @@ class Grid:
             for i in range(0, self.width):
                 cell = self.get(i, j)
 
-                # agent_here = False
-                # if agent_poses is not None and np.array((i, j)) in agent_poses:
-                #     agent_here = True
-
                 agent_here = False
                 agent_index = None
                 if agent_poses is not None:
@@ -647,17 +636,6 @@ class Grid:
                         if np.all(np.equal(p, np.array((i, j)))):
                             agent_here = True
                             break 
-
-                # agent_here = np.any(np.equal(np.array((i, j)), x) for x in agent_poses)
-
-                # tile_img = Grid.ma_render_tile(
-                #     cell,
-                #     agent_id=agent_poses.index(np.array((i, j))) if agent_here else None,
-                #     agent_dir=agent_dirs[agent_poses.index(np.array((i, j)))] if agent_here else None,
-                #     num_agents=len(agent_poses) if agent_here else None,
-                #     highlight=highlight_mask[i, j],
-                #     tile_size=tile_size
-                # )
 
                 tile_img = Grid.ma_render_tile(
                     cell,
@@ -1526,8 +1504,6 @@ class MultiAgentMiniGridEnv(gym.Env):
         # Current positions and directions of the agents
         self.agent_poses = []
         self.agent_dirs = []
-        # self.agent_pos = None
-        # self.agent_dir = None
 
         # Initialize the RNG
         self.seed(seed=seed)
@@ -1539,8 +1515,6 @@ class MultiAgentMiniGridEnv(gym.Env):
         # Current positions and directions of the agents
         self.agent_poses = []
         self.agent_dirs = []
-        # self.agent_pos = None
-        # self.agent_dir = None
 
         # Generate a new random grid at the start of each episode
         # To keep the same grid for each episode, call env.seed() with
@@ -1550,15 +1524,11 @@ class MultiAgentMiniGridEnv(gym.Env):
         # These fields should be defined by _gen_grid
         assert self.agent_poses
         assert self.agent_dirs
-        # assert self.agent_pos is not None
-        # assert self.agent_dir is not None
 
         # Check that the agent doesn't overlap with an object
         for pos in self.agent_poses:
             start_cell = self.grid.get(*pos)
             assert start_cell is None or start_cell.can_overlap()
-        # start_cell = self.grid.get(*self.agent_pos)
-        # assert start_cell is None or start_cell.can_overlap()
 
         # Item picked up, being carried, initially nothing for all agents
         self.carrying_objects = [None for i in self.agent_poses]
@@ -1630,9 +1600,6 @@ class MultiAgentMiniGridEnv(gym.Env):
                 if np.array((i, j)) in self.agent_poses:
                     str += 2 * AGENT_DIR_TO_STR[self.agent_dirs[self.agent_poses.index(np.array((i, j)))]]
                     continue
-                # if i == self.agent_pos[0] and j == self.agent_pos[1]:
-                #     str += 2 * AGENT_DIR_TO_STR[self.agent_dir]
-                #     continue
 
                 c = self.grid.get(i, j)
 
@@ -1772,22 +1739,8 @@ class MultiAgentMiniGridEnv(gym.Env):
             if self.grid.get(*pos) != None:
                 continue
 
-            # Don't place the object where agents are
-
-            # if np.any(np.equal(pos, p) for p in self.agent_poses):
-            #     continue
-
-            # print('==========')
-            # print('agent_poses list: ', self.agent_poses)
-            # print('pos: ', pos, ' type: ', type(pos))
-            # for p in self.agent_poses:
-            #     print('type: ', type(p))
-            # if pos in self.agent_poses:
-            #     continue
-
             conflict = False
             for p in self.agent_poses:
-                # print('pos: ', pos, ' type: ', type(pos), ' p: ', p, ' type: ', type(p), ' equal: ', np.equal(p, pos))
                 if np.all(np.equal(p, pos)):
                     conflict = True
                     break
@@ -1828,14 +1781,11 @@ class MultiAgentMiniGridEnv(gym.Env):
         Set an agent's starting point at an empty position in the grid
         """
 
-        # self.agent_pos = None
         pos = self.place_obj(None, top, size, max_tries=max_tries)
         self.agent_poses.append(pos)
-        # self.agent_pos = pos
 
         if rand_dir:
             self.agent_dirs.append(self._rand_int(0, 4))
-            # self.agent_dir = self._rand_int(0, 4)
 
         return pos
 
@@ -1846,9 +1796,7 @@ class MultiAgentMiniGridEnv(gym.Env):
         """
 
         assert agent_id < len(self.agent_dirs) and self.agent_dirs[agent_id] >= 0 and self.agent_dirs[agent_id] < 4
-        # assert self.agent_dir >= 0 and self.agent_dir < 4
         return DIR_TO_VEC[self.agent_dirs[agent_id]]
-        # return DIR_TO_VEC[self.agent_dir]
 
     def right_vec(self, agent_id):
         """
@@ -1856,7 +1804,6 @@ class MultiAgentMiniGridEnv(gym.Env):
         """
 
         dx, dy = self.dir_vec(agent_id)
-        # dx, dy = self.dir_vec
         return np.array((-dy, dx))
 
     def front_pos(self, agent_id):
@@ -1865,7 +1812,6 @@ class MultiAgentMiniGridEnv(gym.Env):
         """
 
         return self.agent_poses[agent_id] + self.dir_vec(agent_id)
-        # return self.agent_pos + self.dir_vec
 
     def get_view_coords(self, agent_id, i, j):
         """
@@ -1877,9 +1823,6 @@ class MultiAgentMiniGridEnv(gym.Env):
         ax, ay = self.agent_poses[agent_id]
         dx, dy = self.dir_vec(agent_id)
         rx, ry = self.right_vec(agent_id)
-        # ax, ay = self.agent_pos
-        # dx, dy = self.dir_vec
-        # rx, ry = self.right_vec
 
         # Compute the absolute coordinates of the top-left view corner
         sz = self.agent_view_size
@@ -1927,30 +1870,6 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         return (topX, topY, botX, botY)
 
-        # # Facing right
-        # if self.agent_dir == 0:
-        #     topX = self.agent_pos[0]
-        #     topY = self.agent_pos[1] - self.agent_view_size // 2
-        # # Facing down
-        # elif self.agent_dir == 1:
-        #     topX = self.agent_pos[0] - self.agent_view_size // 2
-        #     topY = self.agent_pos[1]
-        # # Facing left
-        # elif self.agent_dir == 2:
-        #     topX = self.agent_pos[0] - self.agent_view_size + 1
-        #     topY = self.agent_pos[1] - self.agent_view_size // 2
-        # # Facing up
-        # elif self.agent_dir == 3:
-        #     topX = self.agent_pos[0] - self.agent_view_size // 2
-        #     topY = self.agent_pos[1] - self.agent_view_size + 1
-        # else:
-        #     assert False, "invalid agent direction"
-
-        # botX = topX + self.agent_view_size
-        # botY = topY + self.agent_view_size
-
-        # return (topX, topY, botX, botY)
-
     def relative_coords(self, agent_id, x, y):
         """
         Check if a grid position belongs to an agent's field of view, and returns the corresponding coordinates
@@ -1995,16 +1914,9 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         # Get the positions in front of the agents
         fwd_poses = [self.front_pos(agent_id) for agent_id in range(len(self.agent_poses))]
-        # fwd_pos = self.front_pos
 
-        # Get the contents of the cell in front of the agent
+        # Get the contents of the cell in front of the agents
         fwd_cells = [self.grid.get(*fwd_pos) for fwd_pos in fwd_poses]
-        # fwd_cell = self.grid.get(*fwd_pos)
-
-        # print('==========')
-        # print('actions: ', actions)
-        # print('dirs: ', self.agent_dirs)
-        # print('poses: ', self.agent_poses)
 
         for agent_id, action in enumerate(actions):
 
@@ -2013,14 +1925,10 @@ class MultiAgentMiniGridEnv(gym.Env):
                 self.agent_dirs[agent_id] -= 1
                 if self.agent_dirs[agent_id] < 0:
                     self.agent_dirs[agent_id] += 4
-                # self.agent_dir -= 1
-                # if self.agent_dir < 0:
-                #     self.agent_dir += 4
 
             # Rotate right
             elif action == self.actions.right:
                 self.agent_dirs[agent_id] = (self.agent_dirs[agent_id] + 1) % 4
-                # self.agent_dir = (self.agent_dir + 1) % 4
 
             # Move forward
             # TODO: If one agent enters lava or goal, don't set Done for entire episode?
@@ -2033,14 +1941,6 @@ class MultiAgentMiniGridEnv(gym.Env):
                 if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'lava':
                     done = True
 
-                # if fwd_cell == None or fwd_cell.can_overlap():
-                #     self.agent_pos = fwd_pos
-                # if fwd_cell != None and fwd_cell.type == 'goal':
-                #     done = True
-                #     reward = self._reward()
-                # if fwd_cell != None and fwd_cell.type == 'lava':
-                #     done = True
-
             # Pick up an object
             elif action == self.actions.pickup:
                 if fwd_cells[agent_id] and fwd_cells[agent_id].can_pickup():
@@ -2049,12 +1949,6 @@ class MultiAgentMiniGridEnv(gym.Env):
                         self.carrying_objects[agent_id].cur_pos = np.array([-1, -1])
                         self.grid.set(*fwd_poses[agent_id], None)
 
-                # if fwd_cell and fwd_cell.can_pickup():
-                #     if self.carrying is None:
-                #         self.carrying = fwd_cell
-                #         self.carrying.cur_pos = np.array([-1, -1])
-                #         self.grid.set(*fwd_pos, None)
-
             # Drop an object
             elif action == self.actions.drop:
                 if not fwd_cells[agent_id] and self.carrying_objects[agent_id]:
@@ -2062,18 +1956,10 @@ class MultiAgentMiniGridEnv(gym.Env):
                     self.carrying_objects[agent_id].cur_pos = fwd_poses[agent_id]
                     self.carrying_objects[agent_id] = None
 
-                # if not fwd_cell and self.carrying:
-                #     self.grid.set(*fwd_pos, self.carrying)
-                #     self.carrying.cur_pos = fwd_pos
-                #     self.carrying = None
-
             # Toggle/activate an object
             elif action == self.actions.toggle:
                 if fwd_cells[agent_id]:
                     fwd_cells[agent_id].ma_toggle(self, agent_id, fwd_poses[agent_id])
-
-                # if fwd_cell:
-                #     fwd_cell.toggle(self, fwd_pos)
 
             # Done action (not used by default)
             elif action == self.actions.done:
@@ -2097,12 +1983,10 @@ class MultiAgentMiniGridEnv(gym.Env):
         """
 
         topX, topY, botX, botY = self.get_view_exts(agent_id)
-        # topX, topY, botX, botY = self.get_view_exts()
 
         grid = self.grid.slice(topX, topY, self.agent_view_size, self.agent_view_size)
 
         for i in range(self.agent_dirs[agent_id] + 1):
-        # for i in range(self.agent_dir + 1):
             grid = grid.rotate_left()
 
         # Process occluders and visibility
@@ -2118,8 +2002,6 @@ class MultiAgentMiniGridEnv(gym.Env):
         agent_pos = grid.width // 2, grid.height - 1
         if self.carrying_objects[agent_id]:
             grid.set(*agent_pos, self.carrying_objects[agent_id])
-        # if self.carrying:
-        #     grid.set(*agent_pos, self.carrying)
         else:
             grid.set(*agent_pos, None)
 
@@ -2151,23 +2033,6 @@ class MultiAgentMiniGridEnv(gym.Env):
             }
 
             combined_obs.append(obs)
-
-        # grid, vis_mask = self.gen_obs_grid()
-
-        # # Encode the partially observable view into a numpy array
-        # image = grid.encode(vis_mask)
-
-        # assert hasattr(self, 'mission'), "environments must define a textual mission string"
-
-        # # Observations are dictionaries containing:
-        # # - an image (partially observable view of the environment)
-        # # - the agent's direction/orientation (acting as a compass)
-        # # - a textual mission string (instructions for the agent)
-        # obs = {
-        #     'image': image,
-        #     'direction': self.agent_dir,
-        #     'mission': self.mission
-        # }
 
         return combined_obs
 
@@ -2233,36 +2098,6 @@ class MultiAgentMiniGridEnv(gym.Env):
 
                     # Mark this cell to be highlighted
                     highlight_mask[abs_i, abs_j] = True
-
-        # # Compute which cells are visible to the agent
-        # _, vis_mask = self.gen_obs_grid()
-
-        # # Compute the world coordinates of the bottom-left corner
-        # # of the agent's view area
-        # f_vec = self.dir_vec
-        # r_vec = self.right_vec
-        # top_left = self.agent_pos + f_vec * (self.agent_view_size-1) - r_vec * (self.agent_view_size // 2)
-
-        # # Mask of which cells to highlight
-        # highlight_mask = np.zeros(shape=(self.width, self.height), dtype=np.bool)
-
-        # # For each cell in the visibility mask
-        # for vis_j in range(0, self.agent_view_size):
-        #     for vis_i in range(0, self.agent_view_size):
-        #         # If this cell is not visible, don't highlight it
-        #         if not vis_mask[vis_i, vis_j]:
-        #             continue
-
-        #         # Compute the world coordinates of this cell
-        #         abs_i, abs_j = top_left - (f_vec * vis_j) + (r_vec * vis_i)
-
-        #         if abs_i < 0 or abs_i >= self.width:
-        #             continue
-        #         if abs_j < 0 or abs_j >= self.height:
-        #             continue
-
-        #         # Mark this cell to be highlighted
-        #         highlight_mask[abs_i, abs_j] = True
 
         # Render the whole grid
         img = self.grid.ma_render(
