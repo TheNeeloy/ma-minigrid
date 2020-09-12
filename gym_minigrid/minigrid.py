@@ -97,6 +97,10 @@ class WorldObj:
         """Can the agent pick this up?"""
         return False
 
+    def ma_can_pickup(self, agent_id):
+        """Can an agent pick this up in a multi-agent env?"""
+        return False
+
     def can_contain(self):
         """Can this contain another object?"""
         return False
@@ -296,6 +300,10 @@ class Key(WorldObj):
     def can_pickup(self):
         return True
 
+    def ma_can_pickup(self, agent_id):
+        agent_color = IDX_TO_COLOR[agent_id % len(COLOR_NAMES)]
+        return True if agent_color == self.color else False
+
     def render(self, img):
         c = COLORS[self.color]
 
@@ -317,6 +325,10 @@ class Ball(WorldObj):
     def can_pickup(self):
         return True
 
+    def ma_can_pickup(self, agent_id):
+        agent_color = IDX_TO_COLOR[agent_id % len(COLOR_NAMES)]
+        return True if agent_color == self.color else False
+
     def render(self, img):
         fill_coords(img, point_in_circle(0.5, 0.5, 0.31), COLORS[self.color])
 
@@ -327,6 +339,10 @@ class Box(WorldObj):
 
     def can_pickup(self):
         return True
+
+    def ma_can_pickup(self, agent_id):
+        agent_color = IDX_TO_COLOR[agent_id % len(COLOR_NAMES)]
+        return True if agent_color == self.color else False
 
     def render(self, img):
         c = COLORS[self.color]
@@ -1943,7 +1959,7 @@ class MultiAgentMiniGridEnv(gym.Env):
 
             # Pick up an object
             elif action == self.actions.pickup:
-                if fwd_cells[agent_id] and fwd_cells[agent_id].can_pickup():
+                if fwd_cells[agent_id] and fwd_cells[agent_id].ma_can_pickup(agent_id):
                     if self.carrying_objects[agent_id] is None:
                         self.carrying_objects[agent_id] = fwd_cells[agent_id]
                         self.carrying_objects[agent_id].cur_pos = np.array([-1, -1])
