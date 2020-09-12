@@ -108,6 +108,10 @@ class WorldObj:
     def toggle(self, env, pos):
         """Method to trigger/toggle an action this object performs"""
         return False
+    
+    def ma_toggle(self, env, agent_id, pos):
+        """Method to trigger/toggle an action this object performs in a multi-agent env"""
+        return False
 
     def encode(self):
         """Encode the a description of this object as a 3-tuple of integers"""
@@ -574,6 +578,9 @@ class Grid:
         if obj != None:
             obj.render(img)
 
+        # print('==========')
+        # print('num agents: ', num_agents)
+
         # Overlay an agent on top
         if agent_dir is not None and num_agents is not None and agent_id is not None:
             tri_fn = point_in_triangle(
@@ -584,8 +591,10 @@ class Grid:
 
             # Rotate the agent based on its direction
             tri_fn = rotate_fn(tri_fn, cx=0.5, cy=0.5, theta=0.5*math.pi*agent_dir)
-            cmap = plt.cm.get_cmap('hsv', num_agents)
+            cmap = plt.cm.get_cmap('jet', num_agents)
+            # print('cmap: ', cmap)
             color = cmap(agent_id)
+            # print('agent id: ', agent_id, ' color: ', color)
             fill_coords(img, tri_fn, (color[0]*255, color[1]*255, color[2]*255))
 
         # Highlight the cell if needed
@@ -1768,7 +1777,7 @@ class MultiAgentMiniGridEnv(gym.Env):
             # if np.any(np.equal(pos, p) for p in self.agent_poses):
             #     continue
 
-            print('==========')
+            # print('==========')
             # print('agent_poses list: ', self.agent_poses)
             # print('pos: ', pos, ' type: ', type(pos))
             # for p in self.agent_poses:
@@ -1778,7 +1787,7 @@ class MultiAgentMiniGridEnv(gym.Env):
 
             conflict = False
             for p in self.agent_poses:
-                print('pos: ', pos, ' type: ', type(pos), ' p: ', p, ' type: ', type(p), ' equal: ', np.equal(p, pos))
+                # print('pos: ', pos, ' type: ', type(pos), ' p: ', p, ' type: ', type(p), ' equal: ', np.equal(p, pos))
                 if np.all(np.equal(p, pos)):
                     conflict = True
                     break
@@ -1991,6 +2000,11 @@ class MultiAgentMiniGridEnv(gym.Env):
         # Get the contents of the cell in front of the agent
         fwd_cells = [self.grid.get(*fwd_pos) for fwd_pos in fwd_poses]
         # fwd_cell = self.grid.get(*fwd_pos)
+
+        # print('==========')
+        # print('actions: ', actions)
+        # print('dirs: ', self.agent_dirs)
+        # print('poses: ', self.agent_poses)
 
         for agent_id, action in enumerate(actions):
 

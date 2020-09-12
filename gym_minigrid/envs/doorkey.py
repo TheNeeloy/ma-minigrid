@@ -71,6 +71,7 @@ class MADoorKeyEnv(MultiAgentMiniGridEnv):
         # Place the agent at a random position and orientation
         # on the left side of the splitting wall
         self.place_agent(size=(splitIdx, height))
+        self.place_agent(size=(splitIdx, height))
 
         # Place a door in the wall
         doorIdx = self._rand_int(1, width-2)

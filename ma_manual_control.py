@@ -26,8 +26,8 @@ def reset():
 
     redraw(obs)
 
-def step(action):
-    obs, reward, done, info = env.step([action])
+def step(actions):
+    obs, reward, done, info = env.step(actions)
     print('step=%s, reward=%.2f' % (env.step_count, reward))
 
     if done:
@@ -35,6 +35,9 @@ def step(action):
         reset()
     else:
         redraw(obs)
+
+current_agent = 0
+agent_actions = []
 
 def key_handler(event):
     print('pressed', event.key)
@@ -47,36 +50,55 @@ def key_handler(event):
         reset()
         return
 
+    global current_agent
+    global agent_actions
+
     if event.key == 'left':
-        step(env.actions.left)
-        return
+        agent_actions.append(env.actions.left)
+        # step(env.actions.left)
+        # return
     if event.key == 'right':
-        step(env.actions.right)
-        return
+        agent_actions.append(env.actions.right)
+        # step(env.actions.right)
+        # return
     if event.key == 'up':
-        step(env.actions.forward)
-        return
+        agent_actions.append(env.actions.forward)
+        # step(env.actions.forward)
+        # return
 
     # Spacebar
     if event.key == ' ':
-        step(env.actions.toggle)
-        return
+        agent_actions.append(env.actions.toggle)
+        # step(env.actions.toggle)
+        # return
     if event.key == 'pageup':
-        step(env.actions.pickup)
-        return
+        agent_actions.append(env.actions.pickup)
+        # step(env.actions.pickup)
+        # return
     if event.key == 'pagedown':
-        step(env.actions.drop)
-        return
+        agent_actions.append(env.actions.drop)
+        # step(env.actions.drop)
+        # return
 
     if event.key == 'enter':
-        step(env.actions.done)
-        return
+        agent_actions.append(env.actions.done)
+        # step(env.actions.done)
+        # return
+
+    # print(current_agent)
+
+    if current_agent:
+        step(agent_actions)
+        current_agent = 0
+        agent_actions = []
+    else:
+        current_agent = 1
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--env",
     help="gym environment to load",
-    default='MiniGrid-MA-DoorKey-5x5-v0'
+    default='MiniGrid-MA-DoorKey-16x16-v0'
 )
 parser.add_argument(
     "--seed",
@@ -102,6 +124,7 @@ args = parser.parse_args()
 env = gym.make(args.env)
 
 if args.agent_view:
+    # print('in partial obs view')
     env = RGBImgPartialObsWrapper(env)
     env = ImgObsWrapper(env)
 
