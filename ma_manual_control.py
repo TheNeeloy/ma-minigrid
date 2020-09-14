@@ -77,12 +77,13 @@ def key_handler(event):
     if event.key == 'enter':
         agent_actions.append(env.actions.done)
 
-    if current_agent:
+    if current_agent == 2:
         step(agent_actions)
         current_agent = 0
         agent_actions = []
+
     else:
-        current_agent = 1
+        current_agent += 1
 
 parser = argparse.ArgumentParser()
 parser.add_argument(

@@ -6,6 +6,7 @@ import numpy as np
 from gym import error, spaces, utils
 from gym.utils import seeding
 from .rendering import *
+from collections import Counter
 
 # Size in pixels of a tile in the full-scale human view
 TILE_PIXELS = 32
@@ -1921,6 +1922,18 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         return obs_cell is not None and obs_cell.type == world_cell.type
 
+    # def collision_checker(self, fwd_poses, fwd_cells, next_poses, drop_locations, curr_pos, action):
+    #     """
+    #     Check if action will be valid in current position
+    #     """
+
+    #     if action in [self.actions.pickup, self.actions.toggle, self.actions.left, self.actions.right, self.actions.done]:
+    #         return True
+
+    #     if action in [self.actions.forward, self.actions.drop] and 
+
+    #     return True
+
     def step(self, actions):
         self.step_count += 1
 
@@ -1932,6 +1945,20 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         # Get the contents of the cell in front of the agents
         fwd_cells = [self.grid.get(*fwd_pos) for fwd_pos in fwd_poses]
+
+        # Get attempted next positions of all agents & dropped items
+        next_poses = Counter()
+        drop_locations = Counter()
+        for agent_id, pos in enumerate(self.agent_poses):
+            if actions[agent_id] != self.actions.forward:
+                next_poses[(pos[0], pos[1])] += 1
+                if actions[agent_id] == self.actions.drop:
+                    drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] += 1
+            else:
+                if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap() or fwd_cells[agent_id].type in ['goal', 'lava']:
+                    next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] += 1
+                else:
+                    next_poses[(pos[0], pos[1])] += 1
 
         for agent_id, action in enumerate(actions):
 
@@ -1947,7 +1974,13 @@ class MultiAgentMiniGridEnv(gym.Env):
 
             # Move forward
             # TODO: If one agent enters lava or goal, don't set Done for entire episode?
+            # TODO: New Case 1: agent drops item, and another agent walks into the item at the same time
+            # TODO: New Case 2: agents face eachother and move forward onto the other agents' respective squares
             elif action == self.actions.forward:
+
+                # Stop overlapping agents or items from being dropped
+                if next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] > 1 or drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] > 0:
+                    continue
                 if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap():
                     self.agent_poses[agent_id] = fwd_poses[agent_id]
                 if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'goal':
@@ -1966,6 +1999,8 @@ class MultiAgentMiniGridEnv(gym.Env):
 
             # Drop an object
             elif action == self.actions.drop:
+                if next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] > 0 or drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] > 1:
+                    continue
                 if not fwd_cells[agent_id] and self.carrying_objects[agent_id]:
                     self.grid.set(*fwd_poses[agent_id], self.carrying_objects[agent_id])
                     self.carrying_objects[agent_id].cur_pos = fwd_poses[agent_id]
