@@ -6,7 +6,6 @@ import numpy as np
 from gym import error, spaces, utils
 from gym.utils import seeding
 from .rendering import *
-from collections import Counter
 
 # Size in pixels of a tile in the full-scale human view
 TILE_PIXELS = 32
@@ -1922,17 +1921,61 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         return obs_cell is not None and obs_cell.type == world_cell.type
 
-    # def collision_checker(self, fwd_poses, fwd_cells, next_poses, drop_locations, curr_pos, action):
-    #     """
-    #     Check if action will be valid in current position
-    #     """
+    def collision_checker(self, curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, actions, agent_id):
+        """
+        Check if action will be valid in current position
+        """
 
-    #     if action in [self.actions.pickup, self.actions.toggle, self.actions.left, self.actions.right, self.actions.done]:
-    #         return True
+        # Unintruding action is always valid
+        if actions[agent_id] in [self.actions.pickup, self.actions.toggle, self.actions.left, self.actions.right, self.actions.done]:
+            return True
 
-    #     if action in [self.actions.forward, self.actions.drop] and 
+        # Forward action
+        elif actions[agent_id] == self.actions.forward:
 
-    #     return True
+            # World allows agent to move forward
+            if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap():
+
+                # Other agents trying to access same location, so fail
+                if len(next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) > 1 or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in drop_locations:
+                    return False
+
+                # Other agent currently in spot, so have to recursively check if they will move
+                elif (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in curr_poses:
+                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
+
+                # Completely valid move forward
+                else:
+                    return True
+
+            # Invalid attempt to move forward according to world
+            else:
+                return False
+
+        # Drop action
+        elif actions[agent_id] == self.actions.drop:
+
+            # World allows agent to drop item
+            if not fwd_cells[agent_id] and self.carrying_objects[agent_id]:
+
+                # Other agents trying to access same location, so fail
+                if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in next_poses or len(drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) > 1:
+                    return False
+
+                # Other agent currently in spot, so have to recursively check if they will move
+                elif (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in curr_poses:
+                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
+
+                # Completely valid move to drop item
+                else:
+                    return True
+
+            # Invalid attempt to drop item according to world
+            else:
+                return False
+
+        # Invalid action
+        return False
 
     def step(self, actions):
         self.step_count += 1
@@ -1947,76 +1990,84 @@ class MultiAgentMiniGridEnv(gym.Env):
         fwd_cells = [self.grid.get(*fwd_pos) for fwd_pos in fwd_poses]
 
         # Get attempted next positions of all agents & dropped items
-        next_poses = Counter()
-        drop_locations = Counter()
+        curr_poses = {}
+        next_poses = {}
+        drop_locations = {}
+
         for agent_id, pos in enumerate(self.agent_poses):
+
+            # Store current positions in easily accessible dict
+            curr_poses[(pos[0], pos[1])] = agent_id
+
+            # Agent staying in its current location
             if actions[agent_id] != self.actions.forward:
-                next_poses[(pos[0], pos[1])] += 1
+                if (pos[0], pos[1]) not in next_poses:
+                    next_poses[(pos[0], pos[1])] = []
+                next_poses[(pos[0], pos[1])].append(agent_id)
+
+                # Agent is attempting to drop item into env
                 if actions[agent_id] == self.actions.drop:
-                    drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] += 1
+                    if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in drop_locations:
+                        drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                    drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+
+            # Agent is attempting to move forward
             else:
-                if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap() or fwd_cells[agent_id].type in ['goal', 'lava']:
-                    next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] += 1
-                else:
-                    next_poses[(pos[0], pos[1])] += 1
+                if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in next_poses:
+                    next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
 
         for agent_id, action in enumerate(actions):
 
-            # Rotate left
-            if action == self.actions.left:
-                self.agent_dirs[agent_id] -= 1
-                if self.agent_dirs[agent_id] < 0:
-                    self.agent_dirs[agent_id] += 4
+            if self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, actions, agent_id):
 
-            # Rotate right
-            elif action == self.actions.right:
-                self.agent_dirs[agent_id] = (self.agent_dirs[agent_id] + 1) % 4
+                # Rotate left
+                if action == self.actions.left:
+                    self.agent_dirs[agent_id] -= 1
+                    if self.agent_dirs[agent_id] < 0:
+                        self.agent_dirs[agent_id] += 4
 
-            # Move forward
-            # TODO: If one agent enters lava or goal, don't set Done for entire episode?
-            # TODO: New Case 1: agent drops item, and another agent walks into the item at the same time
-            # TODO: New Case 2: agents face eachother and move forward onto the other agents' respective squares
-            elif action == self.actions.forward:
+                # Rotate right
+                elif action == self.actions.right:
+                    self.agent_dirs[agent_id] = (self.agent_dirs[agent_id] + 1) % 4
 
-                # Stop overlapping agents or items from being dropped
-                if next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] > 1 or drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] > 0:
-                    continue
-                if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap():
-                    self.agent_poses[agent_id] = fwd_poses[agent_id]
-                if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'goal':
-                    done = True
-                    reward = self._reward()
-                if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'lava':
-                    done = True
+                # Move forward
+                elif action == self.actions.forward:
+                    if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap():
+                        self.agent_poses[agent_id] = fwd_poses[agent_id]
+                    if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'goal':
+                        done = True
+                        reward = self._reward()
+                    if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'lava':
+                        done = True
 
-            # Pick up an object
-            elif action == self.actions.pickup:
-                if fwd_cells[agent_id] and fwd_cells[agent_id].ma_can_pickup(agent_id):
-                    if self.carrying_objects[agent_id] is None:
-                        self.carrying_objects[agent_id] = fwd_cells[agent_id]
-                        self.carrying_objects[agent_id].cur_pos = np.array([-1, -1])
-                        self.grid.set(*fwd_poses[agent_id], None)
+                # Pick up an object
+                # TODO: handle case where agent picks up object and another agent comes in to take that place, or drop an object there
+                elif action == self.actions.pickup:
+                    if fwd_cells[agent_id] and fwd_cells[agent_id].ma_can_pickup(agent_id):
+                        if self.carrying_objects[agent_id] is None:
+                            self.carrying_objects[agent_id] = fwd_cells[agent_id]
+                            self.carrying_objects[agent_id].cur_pos = np.array([-1, -1])
+                            self.grid.set(*fwd_poses[agent_id], None)
 
-            # Drop an object
-            elif action == self.actions.drop:
-                if next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] > 0 or drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] > 1:
-                    continue
-                if not fwd_cells[agent_id] and self.carrying_objects[agent_id]:
-                    self.grid.set(*fwd_poses[agent_id], self.carrying_objects[agent_id])
-                    self.carrying_objects[agent_id].cur_pos = fwd_poses[agent_id]
-                    self.carrying_objects[agent_id] = None
+                # Drop an object
+                elif action == self.actions.drop:
+                    if not fwd_cells[agent_id] and self.carrying_objects[agent_id]:
+                        self.grid.set(*fwd_poses[agent_id], self.carrying_objects[agent_id])
+                        self.carrying_objects[agent_id].cur_pos = fwd_poses[agent_id]
+                        self.carrying_objects[agent_id] = None
 
-            # Toggle/activate an object
-            elif action == self.actions.toggle:
-                if fwd_cells[agent_id]:
-                    fwd_cells[agent_id].ma_toggle(self, agent_id, fwd_poses[agent_id])
+                # Toggle/activate an object
+                elif action == self.actions.toggle:
+                    if fwd_cells[agent_id]:
+                        fwd_cells[agent_id].ma_toggle(self, agent_id, fwd_poses[agent_id])
 
-            # Done action (not used by default)
-            elif action == self.actions.done:
-                pass
+                # Done action (not used by default)
+                elif action == self.actions.done:
+                    pass
 
-            else:
-                assert False, "unknown action"
+                else:
+                    assert False, "unknown action"
 
         if self.step_count >= self.max_steps:
             done = True
