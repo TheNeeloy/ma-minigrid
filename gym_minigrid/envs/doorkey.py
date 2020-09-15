@@ -78,9 +78,16 @@ class MADoorKeyEnv(MultiAgentMiniGridEnv):
         doorIdx = self._rand_int(1, width-2)
         self.put_obj(Door('green', is_locked=True), splitIdx, doorIdx)
 
-        # Place a yellow key on the left side
+        # Place a green key on the left side
         self.place_obj(
             obj=Key('green'),
+            top=(0, 0),
+            size=(splitIdx, height)
+        )
+
+        # Place a blue key on the left side
+        self.place_obj(
+            obj=Key('blue'),
             top=(0, 0),
             size=(splitIdx, height)
         )

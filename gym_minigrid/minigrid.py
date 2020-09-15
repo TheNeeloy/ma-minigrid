@@ -1921,20 +1921,20 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         return obs_cell is not None and obs_cell.type == world_cell.type
 
-    def collision_checker(self, curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, actions, agent_id):
+    def collision_checker(self, curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, actions, agent_id):
         """
         Check if action will be valid in current position
         """
 
         # Unintruding action is always valid
-        if actions[agent_id] in [self.actions.pickup, self.actions.toggle, self.actions.left, self.actions.right, self.actions.done]:
+        if actions[agent_id] in [self.actions.toggle, self.actions.left, self.actions.right, self.actions.done]:
             return True
 
         # Forward action
         elif actions[agent_id] == self.actions.forward:
 
             # World allows agent to move forward
-            if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap():
+            if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap() or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
 
                 # Other agents trying to access same location, so fail
                 if len(next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) > 1 or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in drop_locations:
@@ -1942,7 +1942,13 @@ class MultiAgentMiniGridEnv(gym.Env):
 
                 # Other agent currently in spot, so have to recursively check if they will move
                 elif (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in curr_poses:
-                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
+
+                    # Agents can't move forward when another agent is moving forward toward them in opposite directions
+                    if (self.agent_poses[agent_id][0], self.agent_poses[agent_id][1]) in next_poses and curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] in next_poses[(self.agent_poses[agent_id][0], self.agent_poses[agent_id][1])]:
+                        return False
+
+                    # Recursively check validity of move at new position
+                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
 
                 # Completely valid move forward
                 else:
@@ -1956,7 +1962,7 @@ class MultiAgentMiniGridEnv(gym.Env):
         elif actions[agent_id] == self.actions.drop:
 
             # World allows agent to drop item
-            if not fwd_cells[agent_id] and self.carrying_objects[agent_id]:
+            if (not fwd_cells[agent_id]  or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1) and self.carrying_objects[agent_id] :
 
                 # Other agents trying to access same location, so fail
                 if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in next_poses or len(drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) > 1:
@@ -1964,13 +1970,24 @@ class MultiAgentMiniGridEnv(gym.Env):
 
                 # Other agent currently in spot, so have to recursively check if they will move
                 elif (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in curr_poses:
-                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
+                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
 
                 # Completely valid move to drop item
                 else:
                     return True
 
             # Invalid attempt to drop item according to world
+            else:
+                return False
+
+        # Pickup action
+        elif actions[agent_id] == self.actions.pickup:
+
+            # Only one agent able to pickup item in world makes action valid
+            if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and agent_id in pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
+                return True
+
+            # Invalid attempt to pickup item from world
             else:
                 return False
 
@@ -1993,6 +2010,7 @@ class MultiAgentMiniGridEnv(gym.Env):
         curr_poses = {}
         next_poses = {}
         drop_locations = {}
+        pickup_locations = {}
 
         for agent_id, pos in enumerate(self.agent_poses):
 
@@ -2011,6 +2029,13 @@ class MultiAgentMiniGridEnv(gym.Env):
                         drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
                     drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
 
+                # Agent is attempting to pick up item from env
+                if actions[agent_id] == self.actions.pickup:
+                    if fwd_cells[agent_id] and fwd_cells[agent_id].ma_can_pickup(agent_id):
+                        if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in pickup_locations:
+                            pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                        pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+
             # Agent is attempting to move forward
             else:
                 if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in next_poses:
@@ -2019,7 +2044,7 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         for agent_id, action in enumerate(actions):
 
-            if self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, actions, agent_id):
+            if self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, actions, agent_id):
 
                 # Rotate left
                 if action == self.actions.left:
@@ -2033,7 +2058,7 @@ class MultiAgentMiniGridEnv(gym.Env):
 
                 # Move forward
                 elif action == self.actions.forward:
-                    if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap():
+                    if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap() or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
                         self.agent_poses[agent_id] = fwd_poses[agent_id]
                     if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'goal':
                         done = True
@@ -2042,9 +2067,8 @@ class MultiAgentMiniGridEnv(gym.Env):
                         done = True
 
                 # Pick up an object
-                # TODO: handle case where agent picks up object and another agent comes in to take that place, or drop an object there
                 elif action == self.actions.pickup:
-                    if fwd_cells[agent_id] and fwd_cells[agent_id].ma_can_pickup(agent_id):
+                    if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and agent_id in pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
                         if self.carrying_objects[agent_id] is None:
                             self.carrying_objects[agent_id] = fwd_cells[agent_id]
                             self.carrying_objects[agent_id].cur_pos = np.array([-1, -1])
@@ -2052,7 +2076,7 @@ class MultiAgentMiniGridEnv(gym.Env):
 
                 # Drop an object
                 elif action == self.actions.drop:
-                    if not fwd_cells[agent_id] and self.carrying_objects[agent_id]:
+                    if not fwd_cells[agent_id] and self.carrying_objects[agent_id] or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
                         self.grid.set(*fwd_poses[agent_id], self.carrying_objects[agent_id])
                         self.carrying_objects[agent_id].cur_pos = fwd_poses[agent_id]
                         self.carrying_objects[agent_id] = None
