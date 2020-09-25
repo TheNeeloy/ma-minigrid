@@ -77,7 +77,7 @@ def key_handler(event):
     if event.key == 'enter':
         agent_actions.append(env.actions.done)
 
-    if current_agent == 2:
+    if current_agent == args.num_agents - 1:
         step(agent_actions)
         current_agent = 0
         agent_actions = []
@@ -89,7 +89,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--env",
     help="gym environment to load",
-    default='MiniGrid-MA-DoorKey-16x16-v0'
+    # default='MiniGrid-MA-DoorKey-16x16-v0'
+    # default='MiniGrid-MA-KeyCorridorS6R3-v0'
+    # default='MiniGrid-MA-KeyCorridorS4R2A2-v0'
+    default='MiniGrid-MA-KeyCorridorS4R2A3-v0'
 )
 parser.add_argument(
     "--seed",
@@ -108,6 +111,12 @@ parser.add_argument(
     default=False,
     help="draw the agent sees (partially observable view)",
     action='store_true'
+)
+parser.add_argument(
+    '--num_agents',
+    type=int,
+    help="number of agents to be in environment",
+    default=1
 )
 
 args = parser.parse_args()

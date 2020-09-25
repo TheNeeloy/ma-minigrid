@@ -5,7 +5,7 @@ from functools import reduce
 import numpy as np
 import gym
 from gym import error, spaces, utils
-from .minigrid import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX
+from .minigrid import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX, COLOR_NAMES
 
 class ReseedWrapper(gym.core.Wrapper):
     """
@@ -241,6 +241,36 @@ class FullyObsWrapper(gym.core.ObservationWrapper):
             COLOR_TO_IDX['red'],
             env.agent_dir
         ])
+
+        return {
+            'mission': obs['mission'],
+            'image': full_grid
+        }
+
+class MAFullyObsWrapper(gym.core.ObservationWrapper):
+    """
+    Fully observable gridworld using a compact grid encoding for multi-agent environments
+    """
+
+    def __init__(self, env):
+        super().__init__(env)
+
+        self.observation_space.spaces["image"] = spaces.Box(
+            low=0,
+            high=255,
+            shape=(self.env.width, self.env.height, 3),  # number of cells
+            dtype='uint8'
+        )
+
+    def observation(self, obs):
+        env = self.unwrapped
+        full_grid = env.grid.encode()
+        for agent_id in range(len(env.agent_poses)):
+            full_grid[env.agent_poses[agent_id][0]][env.agent_poses[agent_id][1]] = np.array([
+                OBJECT_TO_IDX['agent'],
+                agent_id % len(COLOR_NAMES),
+                env.agent_dirs[agent_id]
+            ])
 
         return {
             'mission': obs['mission'],
