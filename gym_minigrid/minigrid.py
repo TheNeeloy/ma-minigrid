@@ -694,6 +694,46 @@ class Grid:
 
         return array
 
+    def ma_encode(self, vis_mask=None, agent_poses=None):
+        """
+        Produce a compact numpy encoding of the grid for multiagent setting
+        """
+
+        if vis_mask is None:
+            vis_mask = np.ones((self.width, self.height), dtype=bool)
+
+        array = np.zeros((self.width, self.height, 3), dtype='uint8')
+
+        for i in range(self.width):
+            for j in range(self.height):
+                if vis_mask[i, j]:
+                    v = self.get(i, j)
+
+                    if v is None:
+                        if i == self.width // 2 and j == self.height - 1:
+                            continue
+
+                        if agent_poses != None and any((np.array((i, j)) == x).all() for x in agent_poses):
+                            found = False
+                            for agent_id, agent_pos in enumerate(agent_poses):
+                                if (np.array((i, j)) == agent_pos).all():
+                                    found = True
+                                    break
+                            if found:
+                                array[i, j, 0] = OBJECT_TO_IDX['agent']
+                                array[i, j, 1] = agent_id % len(COLOR_NAMES)
+                                array[i, j, 2] = 0
+
+                        else:
+                            array[i, j, 0] = OBJECT_TO_IDX['empty']
+                            array[i, j, 1] = 0
+                            array[i, j, 2] = 0
+
+                    else:
+                        array[i, j, :] = v.encode()
+
+        return array
+
     @staticmethod
     def decode(array):
         """
@@ -1567,7 +1607,7 @@ class MultiAgentMiniGridEnv(gym.Env):
         """
         sample_hash = hashlib.sha256()
 
-        to_encode = [self.grid.encode(), self.agent_poses, self.agent_dirs]
+        to_encode = [self.grid.ma_encode(agent_poses=self.agent_poses), self.agent_poses, self.agent_dirs]
         for item in to_encode:
             sample_hash.update(str(item).encode('utf8'))
 
@@ -2140,10 +2180,12 @@ class MultiAgentMiniGridEnv(gym.Env):
         combined_obs = []
 
         for agent_id in range(len(self.agent_poses)):
+
             grid, vis_mask = self.gen_obs_grid(agent_id)
+            relative_agent_poses = [self.get_view_coords(agent_id, pos[0], pos[1]) for pos in self.agent_poses]
 
             # Encode the partially observable view into a numpy array
-            image = grid.encode(vis_mask)
+            image = grid.ma_encode(vis_mask=vis_mask, agent_poses=relative_agent_poses)
 
             assert hasattr(self, 'mission'), "environments must define a textual mission string"
 

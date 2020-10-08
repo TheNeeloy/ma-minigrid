@@ -135,8 +135,12 @@ class MAKeyCorridor(MARoomGrid):
             self.add_object(curr_room[0], curr_room[1], 'key', color)
 
         # Place the agents in the middle
+        self.agent_poses = []
+        self.agent_dirs = []
         for _ in range(self.num_agents):
             self.place_agent(1, self.num_rows // 2)
+        self.agent_poses = self.agent_poses[ : self.num_agents]
+        self.agent_dirs = self.agent_dirs[ : self.num_agents]
 
         # Make sure all rooms are accessible
         self.connect_all()
