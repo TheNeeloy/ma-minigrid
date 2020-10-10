@@ -367,8 +367,8 @@ class Grid:
     tile_cache = {}
 
     def __init__(self, width, height):
-        assert width >= 3
-        assert height >= 3
+        # assert width >= 3
+        # assert height >= 3
 
         self.width = width
         self.height = height
@@ -1587,7 +1587,6 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         # Item picked up, being carried, initially nothing for all agents
         self.carrying_objects = [None for i in self.agent_poses]
-        # self.carrying = None
 
         # Step count since episode start
         self.step_count = 0
@@ -2284,3 +2283,322 @@ class MultiAgentMiniGridEnv(gym.Env):
         if self.window:
             self.window.close()
         return
+
+class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
+    """
+    2D grid world game environment with multi-agent support and communication between agents
+    """
+
+    metadata = {
+        'render.modes': ['human', 'rgb_array'],
+        'video.frames_per_second' : 10
+    }
+
+    def __init__(
+        self,
+        grid_size=None,
+        width=None,
+        height=None,
+        max_steps=100,
+        see_through_walls=False,
+        seed=1337,
+        agent_view_size=7
+    ):
+        # Can't set both grid_size and width/height
+        if grid_size:
+            assert width == None and height == None
+            width = grid_size
+            height = grid_size
+
+        # Action enumeration for this environment
+        self.actions = MultiAgentMiniGridEnv.Actions
+
+        # Actions are discrete integer values
+        self.action_space = spaces.Discrete(len(self.actions))
+
+        # Number of cells (width and height) in the agent view
+        assert agent_view_size % 2 == 1
+        assert agent_view_size >= 3
+        self.agent_view_size = agent_view_size
+
+        # Observations are dictionaries containing an
+        # encoding of the grid and a textual 'mission' string
+        self.observation_space = spaces.Box(
+            low=0,
+            high=255,
+            # shape=(self.agent_view_size, self.agent_view_size, 3),
+            shape=(width, height, 3),
+            dtype='uint8'
+        )
+        self.observation_space = spaces.Dict({
+            'image': self.observation_space
+        })
+
+        # Range of possible rewards
+        self.reward_range = (0, 1)
+
+        # Window to use for human rendering mode
+        self.window = None
+
+        # Environment configuration
+        self.width = width
+        self.height = height
+        self.max_steps = max_steps
+        self.see_through_walls = see_through_walls
+
+        # Current positions and directions of the agents
+        self.agent_poses = []
+        self.agent_dirs = []
+
+        # Initialize the RNG
+        self.seed(seed=seed)
+
+        # Initialize the state
+        self.reset()
+
+    def reset(self):
+        # Current positions and directions of the agents
+        self.agent_poses = []
+        self.agent_dirs = []
+
+        # Generate a new random grid at the start of each episode
+        # To keep the same grid for each episode, call env.seed() with
+        # the same seed before calling env.reset()
+        self._gen_grid(self.width, self.height)
+
+        # These fields should be defined by _gen_grid
+        assert self.agent_poses
+        assert self.agent_dirs
+
+        # Check that the agent doesn't overlap with an object
+        for pos in self.agent_poses:
+            start_cell = self.grid.get(*pos)
+            assert start_cell is None or start_cell.can_overlap()
+
+        # Item picked up, being carried, initially nothing for all agents
+        self.carrying_objects = [None for i in self.agent_poses]
+
+        # Step count since episode start
+        self.step_count = 0
+
+        # Return first observation
+        obs = self.gen_obs_comm()
+        # self.past_obs = obs.copy()
+        # for agent_id, agent_obs in enumerate(obs):
+        #     agent_obs['shared_obs'] = []
+        # print('obs: ', obs)
+        return obs
+
+    def step(self, actions):
+        self.step_count += 1
+
+        reward = 0
+        done = False
+
+        # Get the positions in front of the agents
+        fwd_poses = [self.front_pos(agent_id) for agent_id in range(len(self.agent_poses))]
+
+        # Get the contents of the cell in front of the agents
+        fwd_cells = [self.grid.get(*fwd_pos) for fwd_pos in fwd_poses]
+
+        # Get attempted next positions of all agents & dropped items
+        curr_poses = {}
+        next_poses = {}
+        drop_locations = {}
+        pickup_locations = {}
+        orig_agent_poses_copy = self.agent_poses.copy()
+
+        # Get physical actions from actions list
+        phys_actions = [action[0] for action in actions]
+
+        for agent_id, pos in enumerate(self.agent_poses):
+
+            # Store current positions in easily accessible dict
+            curr_poses[(pos[0], pos[1])] = agent_id
+
+            # Agent staying in its current location
+            if phys_actions[agent_id] != self.actions.forward:
+                if (pos[0], pos[1]) not in next_poses:
+                    next_poses[(pos[0], pos[1])] = []
+                next_poses[(pos[0], pos[1])].append(agent_id)
+
+                # Agent is attempting to drop item into env
+                if phys_actions[agent_id] == self.actions.drop:
+                    if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in drop_locations:
+                        drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                    drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+
+                # Agent is attempting to pick up item from env
+                if phys_actions[agent_id] == self.actions.pickup:
+                    if fwd_cells[agent_id] and fwd_cells[agent_id].ma_can_pickup(agent_id):
+                        if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in pickup_locations:
+                            pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                        pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+
+            # Agent is attempting to move forward
+            else:
+                if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in next_poses:
+                    next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+
+        for agent_id, action in enumerate(phys_actions):
+
+            if self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, phys_actions, agent_id):
+
+                # Rotate left
+                if action == self.actions.left:
+                    self.agent_dirs[agent_id] -= 1
+                    if self.agent_dirs[agent_id] < 0:
+                        self.agent_dirs[agent_id] += 4
+
+                # Rotate right
+                elif action == self.actions.right:
+                    self.agent_dirs[agent_id] = (self.agent_dirs[agent_id] + 1) % 4
+
+                # Move forward
+                elif action == self.actions.forward:
+                    if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap() or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
+                        self.agent_poses[agent_id] = fwd_poses[agent_id]
+                    if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'goal':
+                        done = True
+                        reward = self._reward()
+                    if fwd_cells[agent_id] != None and fwd_cells[agent_id].type == 'lava':
+                        done = True
+
+                # Pick up an object
+                elif action == self.actions.pickup:
+                    if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and agent_id in pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
+                        if self.carrying_objects[agent_id] is None:
+                            self.carrying_objects[agent_id] = fwd_cells[agent_id]
+                            self.carrying_objects[agent_id].cur_pos = np.array([-1, -1])
+                            self.grid.set(*fwd_poses[agent_id], None)
+
+                # Drop an object
+                elif action == self.actions.drop:
+                    if not fwd_cells[agent_id] and self.carrying_objects[agent_id] or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
+                        self.grid.set(*fwd_poses[agent_id], self.carrying_objects[agent_id])
+                        self.carrying_objects[agent_id].cur_pos = fwd_poses[agent_id]
+                        self.carrying_objects[agent_id] = None
+
+                # Toggle/activate an object
+                elif action == self.actions.toggle:
+                    if fwd_cells[agent_id]:
+                        fwd_cells[agent_id].ma_toggle(self, agent_id, fwd_poses[agent_id])
+
+                # Done action (not used by default)
+                elif action == self.actions.done:
+                    pass
+
+                else:
+                    assert False, "unknown action"
+
+        if self.step_count >= self.max_steps:
+            done = True
+
+        # Get communication actions from actions list
+        comm_actions = [action[1] for action in actions]
+        obs = self.gen_obs_comm(comm_actions)
+
+        # new_obs = obs.copy()
+
+        # for agent_id, agent_obs in enumerate(obs):
+        #     agent_obs['shared_obs'] = []
+
+        # for agent_id, communicate in enumerate(comm_actions):
+        #     if communicate:
+        #         for other_agent_id in range(len(orig_agent_poses_copy)):
+        #             if agent_id == other_agent_id:
+        #                 continue
+        #             elif np.sqrt(                                                                                   \
+        #                     (orig_agent_poses_copy[agent_id][0] - orig_agent_poses_copy[other_agent_id][0])**2 +    \
+        #                     (orig_agent_poses_copy[agent_id][1] - orig_agent_poses_copy[other_agent_id][1])**2      \
+        #                     ) < 3:
+        #                 obs[other_agent_id]['shared_obs'].append(obs[agent_id]['image'])
+
+        return obs, reward, done, {}
+
+    def gen_obs_grid_comm(self, agent_id):
+        """
+        Generate the sub-grid observed by an agent.
+        This method also outputs a visibility mask telling us which grid
+        cells the agent can actually see.
+        """
+
+        topX, topY, botX, botY = self.get_view_exts(agent_id)
+        if topX < 0:
+            topX = 0
+        if topY < 0:
+            topY = 0
+        if botX > self.grid.width:
+            botX = self.grid.width
+        if botY > self.grid.height:
+            botY = self.grid.height
+
+        grid = self.grid.slice(topX, topY, botX - topX, botY - topY)
+
+        for i in range(self.agent_dirs[agent_id] + 1):
+            grid = grid.rotate_left()
+
+        # Process occluders and visibility
+        # Note that this incurs some performance cost
+        if not self.see_through_walls:
+            vis_mask = grid.process_vis(agent_pos=(grid.width // 2 , grid.height - 1))
+        else:
+            vis_mask = np.ones(shape=(grid.width, grid.height), dtype=np.bool)
+
+        # Make it so the agent sees what it's carrying
+        # We do this by placing the carried object at the agent's position
+        # in the agent's partially observable view
+        agent_pos = grid.width // 2, grid.height - 1
+        if self.carrying_objects[agent_id]:
+            grid.set(*agent_pos, self.carrying_objects[agent_id])
+        else:
+            grid.set(*agent_pos, None)
+
+        # Rotate grid & mask back to original pose
+        for i in range(3 - self.agent_dirs[agent_id]):
+            grid = grid.rotate_left()
+
+        vis_mask = np.rot90(vis_mask, 3 - self.agent_dirs[agent_id])
+
+        # Fill in partial obs grid & mask into complete obs space grid & mask
+        final_grid = self.grid.copy()
+        final_vis_mask = np.zeros(shape=(self.grid.width, self.grid.height), dtype=np.bool)
+
+        for x in range(grid.width):
+            for y in range(grid.height):
+                final_grid.set(x + topX, y + topY, grid.get(x, y))
+                final_vis_mask[x + topX][y + topY] = vis_mask[x][y]
+
+        return final_grid, final_vis_mask
+
+    def gen_obs_comm(self, comm_actions=None):
+        """
+        Generate the viewable observations of all agents (partially observable, low-resolution encoding)
+        """
+
+        combined_obs = []
+
+        for agent_id in range(len(self.agent_poses)):
+
+            # print('agentid: ', agent_id)
+            grid, vis_mask = self.gen_obs_grid_comm(agent_id)
+
+            # Encode the partially observable view into a numpy array
+            image = grid.ma_encode(vis_mask=vis_mask, agent_poses=self.agent_poses)
+
+            assert hasattr(self, 'mission'), "environments must define a textual mission string"
+
+            # Observations are dictionaries containing:
+            # - an image (partially observable view of the environment)
+            # - the agent's direction/orientation (acting as a compass)
+            # - a textual mission string (instructions for the agent)
+            obs = {
+                'image': image,
+                'direction': self.agent_dirs[agent_id],
+                'mission': self.mission
+            }
+
+            combined_obs.append(obs)
+
+        return combined_obs
