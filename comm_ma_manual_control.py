@@ -24,21 +24,11 @@ def reset():
         print('Mission: %s' % env.mission)
         window.set_caption(env.mission)
 
-    for agent_obs in obs:
-        print('----------')
-        print('final obs')
-        print(agent_obs)
-
     redraw(obs)
 
 def step(actions):
     obs, reward, done, info = env.step(actions)
     print('step=%s, reward=%.2f' % (env.step_count, reward))
-
-    for agent_obs in obs:
-        print('----------')
-        print('final obs')
-        print(agent_obs)
 
     if done:
         print('done!')

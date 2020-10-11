@@ -711,16 +711,16 @@ class Grid:
                     v = self.get(i, j)
 
                     if v is None:
-                        if agent_poses != None and any((np.array((i, j)) == x).all() for x in agent_poses):
+                        if agent_poses != None and any((np.array((i, j)) == x[0]).all() for x in agent_poses):
                             found = False
                             for agent_id, agent_pos in enumerate(agent_poses):
-                                if (np.array((i, j)) == agent_pos).all():
+                                if (np.array((i, j)) == agent_pos[0]).all():
                                     found = True
                                     break
                             if found:
                                 array[i, j, 0] = OBJECT_TO_IDX['agent']
-                                array[i, j, 1] = agent_id % len(COLOR_NAMES)
-                                array[i, j, 2] = 0
+                                array[i, j, 1] = agent_poses[agent_id][1] % len(COLOR_NAMES)
+                                array[i, j, 2] = agent_poses[agent_id][2]
 
                         else:
                             array[i, j, 0] = OBJECT_TO_IDX['empty']
@@ -1604,7 +1604,9 @@ class MultiAgentMiniGridEnv(gym.Env):
         """
         sample_hash = hashlib.sha256()
 
-        to_encode = [self.grid.ma_encode(agent_poses=self.agent_poses), self.agent_poses, self.agent_dirs]
+        agent_poses = [(pos, agent_id, self.agent_dirs[agent_id]) for agent_id, pos in enumerate(self.agent_poses)]
+
+        to_encode = [self.grid.ma_encode(agent_poses=agent_poses), self.agent_poses, self.agent_dirs]
         for item in to_encode:
             sample_hash.update(str(item).encode('utf8'))
 
@@ -2179,7 +2181,7 @@ class MultiAgentMiniGridEnv(gym.Env):
         for agent_id in range(len(self.agent_poses)):
 
             grid, vis_mask = self.gen_obs_grid(agent_id)
-            relative_agent_poses = [self.get_view_coords(agent_id, pos[0], pos[1]) for other_agent_id, pos in enumerate(self.agent_poses) if agent_id != other_agent_id]
+            relative_agent_poses = [(self.get_view_coords(agent_id, pos[0], pos[1]), other_agent_id, self.agent_dirs[other_agent_id]) for other_agent_id, pos in enumerate(self.agent_poses) if agent_id != other_agent_id]
 
             # Encode the partially observable view into a numpy array
             image = grid.ma_encode(vis_mask=vis_mask, agent_poses=relative_agent_poses)
@@ -2582,7 +2584,7 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
             grid, vis_mask = self.gen_obs_grid_comm(agent_id)
 
             # Encode the partially observable view into a numpy array
-            image = grid.ma_encode(vis_mask=vis_mask, agent_poses=[pos for other_agent_id, pos in enumerate(self.agent_poses) if agent_id != other_agent_id])
+            image = grid.ma_encode(vis_mask=vis_mask, agent_poses=[(pos, other_agent_id, self.agent_dirs[other_agent_id]) for other_agent_id, pos in enumerate(self.agent_poses) if agent_id != other_agent_id])
 
             assert hasattr(self, 'mission'), "environments must define a textual mission string"
 
