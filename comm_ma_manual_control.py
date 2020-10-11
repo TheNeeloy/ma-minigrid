@@ -24,11 +24,21 @@ def reset():
         print('Mission: %s' % env.mission)
         window.set_caption(env.mission)
 
+    for agent_obs in obs:
+        print('----------')
+        print('final obs')
+        print(agent_obs)
+
     redraw(obs)
 
 def step(actions):
     obs, reward, done, info = env.step(actions)
     print('step=%s, reward=%.2f' % (env.step_count, reward))
+
+    for agent_obs in obs:
+        print('----------')
+        print('final obs')
+        print(agent_obs)
 
     if done:
         print('done!')
@@ -55,27 +65,27 @@ def key_handler(event):
 
 
     if event.key == 'left':
-        agent_actions.append((env.actions.left, 0))
+        agent_actions.append((env.actions.left, 1))
 
     if event.key == 'right':
-        agent_actions.append((env.actions.right, 0))
+        agent_actions.append((env.actions.right, 1))
 
     if event.key == 'up':
-        agent_actions.append((env.actions.forward, 0))
+        agent_actions.append((env.actions.forward, 1))
 
     # Spacebar
     if event.key == ' ':
-        agent_actions.append((env.actions.toggle, 0))
+        agent_actions.append((env.actions.toggle, 1))
 
     if event.key == 'pageup':
-        agent_actions.append((env.actions.pickup, 0))
+        agent_actions.append((env.actions.pickup, 1))
 
     if event.key == 'pagedown':
-        agent_actions.append((env.actions.drop, 0))
+        agent_actions.append((env.actions.drop, 1))
 
 
     if event.key == 'enter':
-        agent_actions.append((env.actions.done, 0))
+        agent_actions.append((env.actions.done, 1))
 
     if current_agent == args.num_agents - 1:
         step(agent_actions)

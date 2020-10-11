@@ -6,6 +6,7 @@ import numpy as np
 from gym import error, spaces, utils
 from gym.utils import seeding
 from .rendering import *
+from copy import deepcopy
 
 # Size in pixels of a tile in the full-scale human view
 TILE_PIXELS = 32
@@ -710,9 +711,6 @@ class Grid:
                     v = self.get(i, j)
 
                     if v is None:
-                        if i == self.width // 2 and j == self.height - 1:
-                            continue
-
                         if agent_poses != None and any((np.array((i, j)) == x).all() for x in agent_poses):
                             found = False
                             for agent_id, agent_pos in enumerate(agent_poses):
@@ -2181,7 +2179,7 @@ class MultiAgentMiniGridEnv(gym.Env):
         for agent_id in range(len(self.agent_poses)):
 
             grid, vis_mask = self.gen_obs_grid(agent_id)
-            relative_agent_poses = [self.get_view_coords(agent_id, pos[0], pos[1]) for pos in self.agent_poses]
+            relative_agent_poses = [self.get_view_coords(agent_id, pos[0], pos[1]) for other_agent_id, pos in enumerate(self.agent_poses) if agent_id != other_agent_id]
 
             # Encode the partially observable view into a numpy array
             image = grid.ma_encode(vis_mask=vis_mask, agent_poses=relative_agent_poses)
@@ -2382,11 +2380,12 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
         self.step_count = 0
 
         # Return first observation
-        obs = self.gen_obs_comm()
-        # self.past_obs = obs.copy()
-        # for agent_id, agent_obs in enumerate(obs):
-        #     agent_obs['shared_obs'] = []
-        # print('obs: ', obs)
+        obs, _ = self.gen_obs_comm()
+
+        # Store this obs in case communication occurs in next episode
+        self.orig_agent_poses = deepcopy(self.agent_poses)
+        self.past_obs = deepcopy(obs)
+
         return obs
 
     def step(self, actions):
@@ -2406,7 +2405,6 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
         next_poses = {}
         drop_locations = {}
         pickup_locations = {}
-        orig_agent_poses_copy = self.agent_poses.copy()
 
         # Get physical actions from actions list
         phys_actions = [action[0] for action in actions]
@@ -2497,25 +2495,11 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
 
         # Get communication actions from actions list
         comm_actions = [action[1] for action in actions]
-        obs = self.gen_obs_comm(comm_actions)
+        obs, shared_obs = self.gen_obs_comm(comm_actions)
+        self.orig_agent_poses = deepcopy(self.agent_poses)
+        self.past_obs = deepcopy(obs)
 
-        # new_obs = obs.copy()
-
-        # for agent_id, agent_obs in enumerate(obs):
-        #     agent_obs['shared_obs'] = []
-
-        # for agent_id, communicate in enumerate(comm_actions):
-        #     if communicate:
-        #         for other_agent_id in range(len(orig_agent_poses_copy)):
-        #             if agent_id == other_agent_id:
-        #                 continue
-        #             elif np.sqrt(                                                                                   \
-        #                     (orig_agent_poses_copy[agent_id][0] - orig_agent_poses_copy[other_agent_id][0])**2 +    \
-        #                     (orig_agent_poses_copy[agent_id][1] - orig_agent_poses_copy[other_agent_id][1])**2      \
-        #                     ) < 3:
-        #                 obs[other_agent_id]['shared_obs'].append(obs[agent_id]['image'])
-
-        return obs, reward, done, {}
+        return shared_obs, reward, done, {}
 
     def gen_obs_grid_comm(self, agent_id):
         """
@@ -2539,27 +2523,33 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
         for i in range(self.agent_dirs[agent_id] + 1):
             grid = grid.rotate_left()
 
+        # Facing right
+        if self.agent_dirs[agent_id] == 0:
+            agent_rel_x = self.agent_poses[agent_id][1] - topY
+        # Facing down
+        elif self.agent_dirs[agent_id] == 1:
+            agent_rel_x = botX - 1 - self.agent_poses[agent_id][0]
+        # Facing left
+        elif self.agent_dirs[agent_id] == 2:
+            agent_rel_x = botY - 1 - self.agent_poses[agent_id][1]
+        # Facing up
+        elif self.agent_dirs[agent_id] == 3:
+            agent_rel_x = self.agent_poses[agent_id][0] - topX
+        else:
+            assert False, "invalid agent direction"
+
         # Process occluders and visibility
         # Note that this incurs some performance cost
         if not self.see_through_walls:
-            vis_mask = grid.process_vis(agent_pos=(grid.width // 2 , grid.height - 1))
+            vis_mask = grid.process_vis(agent_pos=(agent_rel_x , grid.height - 1))
         else:
             vis_mask = np.ones(shape=(grid.width, grid.height), dtype=np.bool)
-
-        # Make it so the agent sees what it's carrying
-        # We do this by placing the carried object at the agent's position
-        # in the agent's partially observable view
-        agent_pos = grid.width // 2, grid.height - 1
-        if self.carrying_objects[agent_id]:
-            grid.set(*agent_pos, self.carrying_objects[agent_id])
-        else:
-            grid.set(*agent_pos, None)
 
         # Rotate grid & mask back to original pose
         for i in range(3 - self.agent_dirs[agent_id]):
             grid = grid.rotate_left()
 
-        vis_mask = np.rot90(vis_mask, 3 - self.agent_dirs[agent_id])
+        vis_mask = np.rot90(vis_mask, self.agent_dirs[agent_id] + 1)
 
         # Fill in partial obs grid & mask into complete obs space grid & mask
         final_grid = self.grid.copy()
@@ -2570,6 +2560,13 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
                 final_grid.set(x + topX, y + topY, grid.get(x, y))
                 final_vis_mask[x + topX][y + topY] = vis_mask[x][y]
 
+        # Make it so the agent sees what it's carrying
+        # We do this by placing the carried object at the agent's position
+        if self.carrying_objects[agent_id]:
+            final_grid.set(*(self.agent_poses[agent_id]), self.carrying_objects[agent_id])
+        else:
+            final_grid.set(*(self.agent_poses[agent_id]), None)
+
         return final_grid, final_vis_mask
 
     def gen_obs_comm(self, comm_actions=None):
@@ -2578,14 +2575,14 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
         """
 
         combined_obs = []
+        shared_obs = []
 
         for agent_id in range(len(self.agent_poses)):
 
-            # print('agentid: ', agent_id)
             grid, vis_mask = self.gen_obs_grid_comm(agent_id)
 
             # Encode the partially observable view into a numpy array
-            image = grid.ma_encode(vis_mask=vis_mask, agent_poses=self.agent_poses)
+            image = grid.ma_encode(vis_mask=vis_mask, agent_poses=[pos for other_agent_id, pos in enumerate(self.agent_poses) if agent_id != other_agent_id])
 
             assert hasattr(self, 'mission'), "environments must define a textual mission string"
 
@@ -2599,6 +2596,23 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
                 'mission': self.mission
             }
 
-            combined_obs.append(obs)
+            combined_obs.append(deepcopy(obs))
+            shared_obs.append(deepcopy(obs))
 
-        return combined_obs
+            if comm_actions:
+                for other_agent_id, communicate in enumerate(comm_actions):
+                    if agent_id != other_agent_id and communicate:
+                        if np.sqrt(                                                                                     \
+                                (self.orig_agent_poses[agent_id][0] - self.orig_agent_poses[other_agent_id][0])**2 +    \
+                                (self.orig_agent_poses[agent_id][1] - self.orig_agent_poses[other_agent_id][1])**2      \
+                                ) < 3:
+
+                            for i in range(grid.width):
+                                for j in range(grid.height):
+                                    if not vis_mask[i][j]:
+                                        if self.past_obs[other_agent_id]['image'][i][j][0] not in [0, OBJECT_TO_IDX['agent']]:
+                                            shared_obs[agent_id]['image'][i][j][0] = self.past_obs[other_agent_id]['image'][i][j][0]
+                                            shared_obs[agent_id]['image'][i][j][1] = self.past_obs[other_agent_id]['image'][i][j][1]
+                                            shared_obs[agent_id]['image'][i][j][2] = self.past_obs[other_agent_id]['image'][i][j][2]
+
+        return combined_obs, shared_obs
