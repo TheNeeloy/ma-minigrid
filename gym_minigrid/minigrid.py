@@ -117,6 +117,10 @@ class WorldObj:
         """Method to trigger/toggle an action this object performs in a multi-agent env"""
         return False
 
+    def ma_check_toggle(self, env, agent_id, pos):
+        """Method to check if trigger/toggle action is allowed on this object in a multi-agent env"""
+        return False
+
     def encode(self):
         """Encode the a description of this object as a 3-tuple of integers"""
         return (OBJECT_TO_IDX[self.type], COLOR_TO_IDX[self.color], 0)
@@ -254,6 +258,15 @@ class Door(WorldObj):
             return False
 
         self.is_open = not self.is_open
+        return True
+
+    def ma_check_toggle(self, env, agent_id, pos):
+        # If the player has the right key to open the door in a multi-agent setting
+        if self.is_locked:
+            if isinstance(env.carrying_objects[agent_id], Key) and env.carrying_objects[agent_id].color == self.color:
+                return True
+            return False
+
         return True
 
     def encode(self):
@@ -1960,23 +1973,23 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         return obs_cell is not None and obs_cell.type == world_cell.type
 
-    def collision_checker(self, curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, actions, agent_id):
+    def collision_checker(self, curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, open_door_locations, close_door_locations, actions, agent_id):
         """
         Check if action will be valid in current position
         """
 
         # Unintruding action is always valid
-        if actions[agent_id] in [self.actions.toggle, self.actions.left, self.actions.right, self.actions.done]:
+        if actions[agent_id] in [self.actions.left, self.actions.right, self.actions.done]:
             return True
 
         # Forward action
         elif actions[agent_id] == self.actions.forward:
 
             # World allows agent to move forward
-            if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap() or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
+            if fwd_cells[agent_id] == None or fwd_cells[agent_id].can_overlap() or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1 or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in open_door_locations and len(open_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
 
                 # Other agents trying to access same location, so fail
-                if len(next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) > 1 or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in drop_locations:
+                if len(next_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) > 1 or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in drop_locations or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in close_door_locations:
                     return False
 
                 # Other agent currently in spot, so have to recursively check if they will move
@@ -1987,7 +2000,7 @@ class MultiAgentMiniGridEnv(gym.Env):
                         return False
 
                     # Recursively check validity of move at new position
-                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
+                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, open_door_locations, close_door_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
 
                 # Completely valid move forward
                 else:
@@ -2001,7 +2014,7 @@ class MultiAgentMiniGridEnv(gym.Env):
         elif actions[agent_id] == self.actions.drop:
 
             # World allows agent to drop item
-            if (not fwd_cells[agent_id]  or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1) and self.carrying_objects[agent_id] :
+            if (not fwd_cells[agent_id] or (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in pickup_locations and len(pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1) and self.carrying_objects[agent_id]:
 
                 # Other agents trying to access same location, so fail
                 if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in next_poses or len(drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) > 1:
@@ -2009,7 +2022,7 @@ class MultiAgentMiniGridEnv(gym.Env):
 
                 # Other agent currently in spot, so have to recursively check if they will move
                 elif (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in curr_poses:
-                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
+                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, open_door_locations, close_door_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
 
                 # Completely valid move to drop item
                 else:
@@ -2029,6 +2042,28 @@ class MultiAgentMiniGridEnv(gym.Env):
             # Invalid attempt to pickup item from world
             else:
                 return False
+
+        # Toggle action
+        elif actions[agent_id] == self.actions.toggle:
+
+            # Only one agent able to close door in world makes action valid
+            if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in close_door_locations and agent_id in close_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] and len(close_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
+
+                # Other agents trying to access same location, so fail
+                if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in next_poses:
+                    return False
+
+                # Other agent currently in spot, so have to recursively check if they will move
+                elif (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in curr_poses:
+                    return self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, open_door_locations, close_door_locations, actions, curr_poses[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])])
+
+                # Completely valid move to close door
+                else:
+                    return True
+
+            # Only one agent able to open door in world makes action valid
+            elif (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) in open_door_locations and agent_id in open_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] and len(open_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])]) == 1:
+                return True
 
         # Invalid action
         return False
@@ -2050,6 +2085,8 @@ class MultiAgentMiniGridEnv(gym.Env):
         next_poses = {}
         drop_locations = {}
         pickup_locations = {}
+        open_door_locations = {}
+        close_door_locations = {}
 
         for agent_id, pos in enumerate(self.agent_poses):
 
@@ -2069,11 +2106,23 @@ class MultiAgentMiniGridEnv(gym.Env):
                     drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
 
                 # Agent is attempting to pick up item from env
-                if actions[agent_id] == self.actions.pickup:
+                elif actions[agent_id] == self.actions.pickup:
                     if fwd_cells[agent_id] and fwd_cells[agent_id].ma_can_pickup(agent_id):
                         if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in pickup_locations:
                             pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
                         pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+
+                # Agent is attempting to toggle object in front of it
+                elif actions[agent_id] == self.actions.toggle:
+                    if fwd_cells[agent_id] and fwd_cells[agent_id].ma_check_toggle(self, agent_id, fwd_poses[agent_id]):
+                        if fwd_cells[agent_id].is_open:
+                            if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in close_door_locations:
+                                close_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                            close_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+                        else:
+                            if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in open_door_locations:
+                                open_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                            open_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
 
             # Agent is attempting to move forward
             else:
@@ -2083,7 +2132,7 @@ class MultiAgentMiniGridEnv(gym.Env):
 
         for agent_id, action in enumerate(actions):
 
-            if self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, actions, agent_id):
+            if self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, open_door_locations, close_door_locations, actions, agent_id):
 
                 # Rotate left
                 if action == self.actions.left:
@@ -2407,6 +2456,8 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
         next_poses = {}
         drop_locations = {}
         pickup_locations = {}
+        open_door_locations = {}
+        close_door_locations = {}
 
         # Get physical actions from actions list
         phys_actions = [action[0] for action in actions]
@@ -2429,11 +2480,23 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
                     drop_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
 
                 # Agent is attempting to pick up item from env
-                if phys_actions[agent_id] == self.actions.pickup:
+                elif phys_actions[agent_id] == self.actions.pickup:
                     if fwd_cells[agent_id] and fwd_cells[agent_id].ma_can_pickup(agent_id):
                         if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in pickup_locations:
                             pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
                         pickup_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+
+                # Agent is attempting to toggle object in front of it
+                elif phys_actions[agent_id] == self.actions.toggle:
+                    if fwd_cells[agent_id] and fwd_cells[agent_id].ma_check_toggle(self, agent_id, fwd_poses[agent_id]):
+                        if fwd_cells[agent_id].is_open:
+                            if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in close_door_locations:
+                                close_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                            close_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
+                        else:
+                            if (fwd_poses[agent_id][0], fwd_poses[agent_id][1]) not in open_door_locations:
+                                open_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])] = []
+                            open_door_locations[(fwd_poses[agent_id][0], fwd_poses[agent_id][1])].append(agent_id)
 
             # Agent is attempting to move forward
             else:
@@ -2443,7 +2506,7 @@ class CommunicativeMultiAgentMiniGridEnv(MultiAgentMiniGridEnv):
 
         for agent_id, action in enumerate(phys_actions):
 
-            if self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, phys_actions, agent_id):
+            if self.collision_checker(curr_poses, fwd_poses, fwd_cells, next_poses, drop_locations, pickup_locations, open_door_locations, close_door_locations, phys_actions, agent_id):
 
                 # Rotate left
                 if action == self.actions.left:
