@@ -28,7 +28,7 @@ def reset():
 
 def step(actions):
     obs, reward, done, info = env.step(actions)
-    print('step=%s, reward=%.2f' % (env.step_count, reward))
+    print('step=', env.step_count,' reward=', reward)
 
     if done:
         print('done!')
@@ -90,9 +90,8 @@ parser.add_argument(
     "--env",
     help="gym environment to load",
     # default='MiniGrid-MA-DoorKey-16x16-v0'
-    # default='MiniGrid-MA-KeyCorridorS6R3-v0'
-    # default='MiniGrid-MA-KeyCorridorS4R2A2-v0'
-    default='MiniGrid-MA-KeyCorridorS4R2A3-v0'
+    # default='MiniGrid-MA-KeyCorridorS4R2A3-v0'
+    default='MiniGrid-MA-UnlockDoorGoalA2-v0'
 )
 parser.add_argument(
     "--seed",
